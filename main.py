@@ -1,4 +1,4 @@
-# ------------------------------------------------------------------------
+ # ------------------------------------------------------------------------
 # Copyright (c) Hitachi, Ltd. All Rights Reserved.
 # Licensed under the Apache License, Version 2.0 [see LICENSE for details]
 # ------------------------------------------------------------------------
@@ -11,7 +11,7 @@ import json
 import random
 import time
 from pathlib import Path
-
+from datasets.vcoco import a_build
 import numpy as np
 import torch
 from torch.utils.data import DataLoader, DistributedSampler
@@ -21,13 +21,16 @@ import util.misc as utils
 from datasets import build_dataset, get_coco_api_from_dataset
 from engine import evaluate, train_one_epoch, evaluate_hoi
 from models import build_model
+import wandb
+import pickle
+
 
 
 def get_args_parser():
     parser = argparse.ArgumentParser('Set transformer detector', add_help=False)
     parser.add_argument('--lr', default=1e-4, type=float)
     parser.add_argument('--lr_backbone', default=1e-5, type=float)
-    parser.add_argument('--batch_size', default=2, type=int)
+    parser.add_argument('--batch_size', default=4, type=int)
     parser.add_argument('--weight_decay', default=1e-4, type=float)
     parser.add_argument('--epochs', default=150, type=int)
     parser.add_argument('--lr_drop', default=100, type=int)
@@ -38,7 +41,7 @@ def get_args_parser():
     parser.add_argument('--frozen_weights', type=str, default=None,
                         help="Path to the pretrained model. If set, only the mask head will be trained")
     # * Backbone
-    parser.add_argument('--backbone', default='resnet50', type=str,
+    parser.add_argument('--backbone', default='resnet101', type=str,
                         help="Name of the convolutional backbone to use")
     parser.add_argument('--dilation', action='store_true',
                         help="If true, we replace stride with dilation in the last convolutional block (DC5)")
@@ -121,7 +124,12 @@ def get_args_parser():
                         help='start epoch')
     parser.add_argument('--eval', action='store_true')
     parser.add_argument('--num_workers', default=2, type=int)
-
+    
+    
+    # hoi eval parameters
+    parser.add_argument('--debug',action='store_true')
+    parser.add_argument('--wandb', action='store_true')
+    
     # distributed training parameters
     parser.add_argument('--world_size', default=1, type=int,
                         help='number of distributed processes')
@@ -167,7 +175,10 @@ def main(args):
     lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, args.lr_drop)
 
     dataset_train = build_dataset(image_set='train', args=args)
+    a_dataset_train=a_build(image_set='train')
+    
     dataset_val = build_dataset(image_set='val', args=args)
+    a_dataset_val=a_build(image_set='val')
 
     if args.distributed:
         sampler_train = DistributedSampler(dataset_train)
@@ -179,11 +190,27 @@ def main(args):
     batch_sampler_train = torch.utils.data.BatchSampler(
         sampler_train, args.batch_size, drop_last=True)
 
+    
+    
+    
     data_loader_train = DataLoader(dataset_train, batch_sampler=batch_sampler_train,
                                    collate_fn=utils.collate_fn, num_workers=args.num_workers)
+    data_loader_train_l=DataLoader(a_dataset_train, batch_sampler=batch_sampler_train,
+                                 collate_fn=utils.collate_fn, num_workers=args.num_workers)
+    
     data_loader_val = DataLoader(dataset_val, args.batch_size, sampler=sampler_val,
-                                 drop_last=False, collate_fn=utils.collate_fn, num_workers=args.num_workers)
+                                 drop_last=True, collate_fn=utils.collate_fn, num_workers=args.num_workers)
+    
+    data_loader_val_l=DataLoader(a_dataset_val, args.batch_size, sampler=sampler_val,
+                                 drop_last=True, collate_fn=utils.collate_fn, num_workers=args.num_workers)
 
+    with open('data_loader_train_l.pkl', 'wb') as f:
+        pickle.dump(data_loader_train_l, f)
+
+    with open('data_loader_val_l.pkl', 'wb') as f:
+        pickle.dump(data_loader_val_l, f)
+    
+    
     if not args.hoi:
         if args.dataset_file == "coco_panoptic":
             # We also evaluate AP during panoptic training, on original coco DS
@@ -222,6 +249,15 @@ def main(args):
             if args.output_dir:
                 utils.save_on_master(coco_evaluator.coco_eval["bbox"].eval, output_dir / "eval.pth")
             return
+            
+    if not args.debug:
+        if utils.is_main_process():
+            wandb.init(project='or_qpic',name=args.output_dir)
+    else:
+        print('total',sum(p.numel() for p in model.parameters()))
+        print('trainable',sum(p.numel() for p in model.parameters() if p.requires_grad))
+    
+    
 
     print("Start training")
     start_time = time.time()
@@ -246,18 +282,33 @@ def main(args):
                     'args': args,
                 }, checkpoint_path)
 
-        if args.hoi:
+
+        if args.hoi and epoch >= 70:
             test_stats = evaluate_hoi(args.dataset_file, model, postprocessors, data_loader_val, args.subject_category_id, device)
             coco_evaluator = None
-        else:
+        elif epoch >= 70:
             test_stats, coco_evaluator = evaluate(
                 model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
             )
+        else:
+            test_stats = {}
+            coco_evaluator = None
+        # if args.hoi:
+        #     test_stats = evaluate_hoi(args.dataset_file, model, postprocessors, data_loader_val, args.subject_category_id, device)
+        #     coco_evaluator = None
+        # else:
+        #     test_stats, coco_evaluator = evaluate(
+        #         model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
+        #     )
+
+
 
         log_stats = {**{f'train_{k}': v for k, v in train_stats.items()},
                      **{f'test_{k}': v for k, v in test_stats.items()},
                      'epoch': epoch,
                      'n_parameters': n_parameters}
+        if utils.is_main_process() and not args.debug:
+            wandb.log(log_stats)
 
         if args.output_dir and utils.is_main_process():
             with (output_dir / "log.txt").open("a") as f:

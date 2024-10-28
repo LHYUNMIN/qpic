@@ -168,6 +168,34 @@ def make_vcoco_transforms(image_set):
     raise ValueError(f'unknown {image_set}')
 
 
+
+
+####################
+def a_make_coco_transforms(image_set):
+    # Normalize transform
+    normalize = T.Compose([
+      
+    T.ToTensor(),
+    T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+    
+        
+    ])
+
+    if image_set == 'train':
+        return T.Compose([
+           
+            normalize,
+        ])
+
+    if image_set == 'val':
+        return T.Compose([
+            normalize,
+        ])
+
+    raise ValueError(f'unknown {image_set}')
+
+#########################
+
 def build(image_set, args):
     root = Path(args.hoi_path)
     assert root.exists(), f'provided HOI path {root} does not exist'
@@ -183,3 +211,23 @@ def build(image_set, args):
     if image_set == 'val':
         dataset.load_correct_mat(CORRECT_MAT_PATH)
     return dataset
+
+def a_build(image_set):
+    root = Path('data/v-coco')  # Convert root to a Path object
+    assert root.exists(), f'provided HOI path {root} does not exist'
+    PATHS = {
+        'train': (root / 'images' / 'train2014', root / 'annotations' / 'trainval_vcoco.json'),
+        'val': (root / 'images' / 'val2014', root / 'annotations' / 'test_vcoco.json')
+    }
+    CORRECT_MAT_PATH = root / 'annotations' / 'corre_vcoco.npy'
+
+    img_folder, anno_file = PATHS[image_set]
+
+    a = VCOCO(image_set, img_folder, anno_file, transforms=a_make_coco_transforms(image_set),
+                      num_queries=100)
+
+    if image_set == 'val':
+       
+        a.load_correct_mat(CORRECT_MAT_PATH)
+
+    return a

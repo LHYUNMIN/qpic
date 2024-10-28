@@ -15,11 +15,12 @@ Copy-paste from torch.nn.Transformer with modifications:
 """
 import copy
 from typing import Optional, List
-
+import pickle
 import torch
 import torch.nn.functional as F
 from torch import nn, Tensor
-
+from .crop2 import process_images_and_extract_features
+from .val_crop2 import process_images_and_extract_features_val
 
 class Transformer(nn.Module):
 
@@ -64,7 +65,50 @@ class Transformer(nn.Module):
                           pos=pos_embed, query_pos=query_embed)
         return hs.transpose(1, 2), memory.permute(1, 2, 0).view(bs, c, h, w)
 
+# with open('data_loader_train_l.pkl', 'rb') as f:
+#     data_loader_train_l = pickle.load(f)
 
+# with open('data_loader_val_l.pkl', 'rb') as f:
+#     data_loader_val_l = pickle.load(f)
+
+# class TransformerEncoder(nn.Module):
+
+#     def __init__(self, encoder_layer, num_layers, norm=None):
+#         super().__init__()
+#         self.layers = _get_clones(encoder_layer, num_layers)
+#         self.num_layers = num_layers
+#         self.norm = norm
+
+#     def forward(self, src,
+#                 mask: Optional[Tensor] = None,
+#                 src_key_padding_mask: Optional[Tensor] = None,
+#                 pos: Optional[Tensor] = None):
+#         output = src
+
+#         for layer in self.layers:
+#             output = layer(output, src_mask=mask,
+#                            src_key_padding_mask=src_key_padding_mask, pos=pos)
+        
+#         if self.training:
+#             crop = process_images_and_extract_features(data_loader_train_l)
+            
+           
+        
+#         else:
+#             crop = process_images_and_extract_features_val(data_loader_val_l)
+            
+
+            
+        
+    
+#         ss=output.size(0)
+#         output= torch.cat((output, crop[:ss, :, :]), dim=1)
+
+#         output = output.narrow(1, 0, 4)
+#         # output = output.narrow(1, 0, 8)
+
+
+#         return output
 class TransformerEncoder(nn.Module):
 
     def __init__(self, encoder_layer, num_layers, norm=None):

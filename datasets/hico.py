@@ -162,7 +162,27 @@ class HICODetection(torch.utils.data.Dataset):
     def load_correct_mat(self, path):
         self.correct_mat = np.load(path)
 
+def a_make_hico_transforms(image_set):
+    # Normalize transform
+    normalize = T.Compose([
+      
+    T.ToTensor(),
+    
+        
+    ])
 
+    if image_set == 'train':
+        return T.Compose([
+           
+            normalize,
+        ])
+
+    if image_set == 'val':
+        return T.Compose([
+            normalize,
+        ])
+
+    raise ValueError(f'unknown {image_set}')
 # Add color jitter to coco transforms
 def make_hico_transforms(image_set):
 
@@ -213,3 +233,24 @@ def build(image_set, args):
         dataset.set_rare_hois(PATHS['train'][1])
         dataset.load_correct_mat(CORRECT_MAT_PATH)
     return dataset
+
+
+def a_build(image_set):
+    root = Path('data/hico_20160224_det')  # Convert root to a Path object
+    assert root.exists(), f'provided HOI path {root} does not exist'
+    PATHS = {
+        'train': (root / 'images' / 'train2015', root / 'annotations' / 'trainval_hico.json'),
+        'val': (root / 'images' / 'test2015', root / 'annotations' / 'test_hico.json')
+    }
+    CORRECT_MAT_PATH = root / 'annotations' / 'corre_hico.npy'
+
+    img_folder, anno_file = PATHS[image_set]
+
+    a = HICODetection(image_set, img_folder, anno_file, transforms=a_make_hico_transforms(image_set),
+                      num_queries=100)
+
+    if image_set == 'val':
+        a.set_rare_hois(PATHS['train'][1])
+        a.load_correct_mat(CORRECT_MAT_PATH)
+
+    return a
